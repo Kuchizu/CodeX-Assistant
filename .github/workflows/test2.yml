@@ -1,0 +1,17 @@
+name: Check Linked Issue Example
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize]
+
+permissions:
+  pull-requests: write
+  issues: read
+  contents: read
+
+jobs:
+  check-linked-issue:
+    uses: ./.github/workflows/check-linked-issue.yml
+    with:
+      mode: strict
+    secrets: inherit
