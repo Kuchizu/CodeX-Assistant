@@ -1,0 +1,67 @@
+name: Check PR Description
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: 'Modes: strict, draft or comment'
+        required: false
+        default: 'comment'
+        type: string
+
+jobs:
+  check-description:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      issues: read
+      contents: read
+    
+    steps:
+      - name: Check PR description
+        id: check_description
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const pr = context.payload.pull_request;
+            const mode = '${{ inputs.mode }}'.toLowerCase() || 'comment';
+            
+            const hasDescription = pr.body && pr.body.trim().length > 0;
+            
+            if (hasDescription) {
+              console.log('PR description is filled');
+              return;
+            }
+            
+            const comment = `Описание pull-request не заполнено. Пожалуйста, добавьте описание изменений.`;
+            
+            // Anyway leave comment just to check
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              body: comment
+            });
+            
+            if (mode === 'strict') {
+              // Close repo
+              await github.rest.pulls.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                state: 'closed'
+              });
+              console.log('PR closed due to missing description (strict mode)');
+            } else if (mode === 'draft') {
+              // Draft
+              await github.rest.pulls.update({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                pull_number: pr.number,
+                draft: true
+              });
+              console.log('PR converted to draft due to missing description (draft mode)');
+            } else {
+              console.log('Comment added (comment mode)');
+            }
