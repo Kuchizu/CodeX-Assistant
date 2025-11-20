@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 jobs:
-  check:
+  check-description:
     uses: ./.github/workflows/check-description.yml
     with:
       mode: draft
