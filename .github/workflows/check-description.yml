@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       mode:
-        description: 'Modes: strict, draft или comment'
+        description: 'Modes: strict, draft or comment'
         required: false
         default: 'comment'
         type: string
