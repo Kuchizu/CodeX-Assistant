@@ -4,7 +4,7 @@ on:
   workflow_call:
     inputs:
       mode:
-        description: 'Modes: strict, draft or comment'
+        description: 'Modes: strict, draft или comment'
         required: false
         default: 'comment'
         type: string
@@ -27,6 +27,10 @@ jobs:
             const pr = context.payload.pull_request;
             const mode = '${{ inputs.mode }}'.toLowerCase() || 'comment';
             
+            console.log(`Mode: ${mode}`);
+            console.log(`PR number: ${pr.number}`);
+            console.log(`PR draft status: ${pr.draft}`);
+            
             const hasDescription = pr.body && pr.body.trim().length > 0;
             
             if (hasDescription) {
@@ -34,34 +38,73 @@ jobs:
               return;
             }
             
-            const comment = `Описание pull-request не заполнено. Пожалуйста, добавьте описание изменений.`;
+            console.log('PR description is empty, taking action...');
             
-            // Anyway leave comment just to check
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: pr.number,
-              body: comment
-            });
+            const comment = `Pull request description is empty`;
+            
+            try {
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                body: comment
+              });
+              console.log('Comment added successfully');
+            } catch (error) {
+              console.error('Failed to add comment:', error.message);
+            }
             
             if (mode === 'strict') {
-              // Close repo
-              await github.rest.pulls.update({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: pr.number,
-                state: 'closed'
-              });
-              console.log('PR closed due to missing description (strict mode)');
+              try {
+                await github.rest.pulls.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: pr.number,
+                  state: 'closed'
+                });
+                console.log('PR closed (strict mode)');
+              } catch (error) {
+                console.error('Failed to close PR:', error.message);
+                throw error;
+              }
             } else if (mode === 'draft') {
-              // Draft
-              await github.rest.pulls.update({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                pull_number: pr.number,
-                draft: true
-              });
-              console.log('PR converted to draft due to missing description (draft mode)');
+              let prData;
+              try {
+                prData = await github.rest.pulls.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: pr.number
+                });
+                console.log(`Current PR draft status: ${prData.data.draft}`);
+              } catch (error) {
+                console.error('Failed to get PR data:', error.message);
+                throw error;
+              }
+              
+              if (!prData.data.draft) {
+                try {
+                  await github.rest.pulls.update({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    pull_number: pr.number,
+                    draft: true
+                  });
+                  console.log('PR converted to draft (draft mode)');
+                  
+                  const updatedPr = await github.rest.pulls.get({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    pull_number: pr.number
+                  });
+                  console.log(`PR draft status after update: ${updatedPr.data.draft}`);
+                } catch (error) {
+                  console.error('Failed to convert PR to draft:', error.message);
+                  console.error('Error details:', JSON.stringify(error, null, 2));
+                  throw error;
+                }
+              } else {
+                console.log('PR is already in draft status');
+              }
             } else {
               console.log('Comment added (comment mode)');
             }
