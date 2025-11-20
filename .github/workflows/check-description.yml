@@ -8,6 +8,10 @@ on:
         required: false
         default: 'comment'
         type: string
+    secrets:
+      PR_DRAFT_TOKEN:
+        description: 'Token with permissions to modify pull requests'
+        required: true
 
 jobs:
   check-description:
@@ -19,7 +23,6 @@ jobs:
     
     steps:
       - name: Check PR description
-        id: check_description
         uses: actions/github-script@v7
         with:
           github-token: ${{ secrets.PR_DRAFT_TOKEN }}
@@ -30,9 +33,7 @@ jobs:
               return;
             }
 
-            const rawMode = '${{ inputs.mode }}' || 'comment';
-            const mode = rawMode.trim().toLowerCase();
-
+            const mode = ('${{ inputs.mode }}' || 'comment').trim().toLowerCase();
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const prNumber = pr.number;
@@ -55,42 +56,30 @@ jobs:
               });
             }
 
-            async function tryConvertPrToDraft() {
-              try {
-                const result = await github.graphql(
-                  `
-                    mutation ConvertToDraft($id: ID!) {
-                      convertPullRequestToDraft(input: { pullRequestId: $id }) {
-                        pullRequest {
-                          number
-                          isDraft
-                        }
+            async function convertToDraft() {
+              await github.graphql(
+                `
+                  mutation ConvertToDraft($id: ID!) {
+                    convertPullRequestToDraft(input: { pullRequestId: $id }) {
+                      pullRequest {
+                        isDraft
                       }
                     }
-                  `,
-                  { id: pr.node_id }
-                );
-
-                const converted = result && result.convertPullRequestToDraft && result.convertPullRequestToDraft.pullRequest;
-                return !!(converted && converted.isDraft);
-              } catch (error) {
-                console.error('Failed to convert PR to draft via GraphQL:', error);
-                return false;
-              }
+                  }
+                `,
+                { id: pr.node_id }
+              );
             }
 
             const hasDescription =
               typeof pr.body === 'string' && pr.body.trim().length > 0;
 
             if (hasDescription) {
-              await addComment(
-                `Check-description: PR #${prNumber} has a non-empty description.`
-              );
               return;
             }
 
             await addComment(
-              `Check-description: PR #${prNumber} has an empty description. Please add a meaningful description.`
+              `Check-description: PR #${prNumber} has an empty description.`
             );
 
             if (mode === 'strict') {
@@ -99,21 +88,8 @@ jobs:
             }
 
             if (mode === 'draft') {
-              let converted = false;
               if (!pr.draft) {
-                converted = await tryConvertPrToDraft();
+                await convertToDraft();
               }
-
-              if (!converted) {
-                await addComment(
-                  `Check-description (draft mode): PR #${prNumber} has an empty description. The check has failed. Please convert the pull request to draft and update the description.`
-                );
-                core.setFailed(
-                  'PR description is empty. Please convert pull request to draft and add description.'
-                );
-              }
-
               return;
             }
-
-            return;
