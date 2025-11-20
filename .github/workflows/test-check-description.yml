@@ -1,4 +1,4 @@
-name: Check Linked Issue Example
+name: Check Description
 
 on:
   pull_request:
