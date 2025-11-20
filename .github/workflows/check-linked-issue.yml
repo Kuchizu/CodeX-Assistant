@@ -62,10 +62,18 @@ jobs:
             
             if (hasLinkedIssue) {
               console.log('PR has linked issue(s)');
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                body: `Check-linked-issue: PR ${pr.number} found issue link`
+              });
+
               return;
             }
             
-            const comment = `Info: no issue link found`;
+            const comment = `Check-linked-issue: PR ${pr.number} no issue link found`;
             
             await github.rest.issues.createComment({
               owner: context.repo.owner,
