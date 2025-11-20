@@ -8,131 +8,98 @@ on:
         required: false
         default: 'comment'
         type: string
+    secrets:
+      PR_DRAFT_TOKEN:
+        description: 'Token with permissions to modify pull requests'
+        required: true
 
 jobs:
   check-linked-issue:
     runs-on: ubuntu-latest
     permissions:
       pull-requests: write
-      issues: read
+      issues: write
       contents: read
     
     steps:
       - name: Check linked issue
-        id: check_issue
         uses: actions/github-script@v7
         with:
-          github-token: ${{ secrets.GITHUB_TOKEN }}
+          github-token: ${{ secrets.PR_DRAFT_TOKEN }}
           script: |
             const pr = context.payload.pull_request;
-            const mode = '${{ inputs.mode }}'.toLowerCase() || 'comment';
-            
-            const prData = await github.rest.pulls.get({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              pull_number: pr.number
-            });
-            
-            // Check issues in pr.body
-            const body = prData.data.body || '';
-            const issuePattern = /(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\s+#(\d+)/gi;
-            const matches = body.match(issuePattern);
-            
-            let hasLinkedIssue = matches && matches.length > 0;
-            
-            if (!hasLinkedIssue) {
-              try {
-                const timeline = await github.rest.issues.listEventsForTimeline({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  issue_number: pr.number
-                });
-                
-                const linkedEvents = timeline.data.filter(event => 
-                  event.event === 'connected' || event.event === 'cross-referenced'
-                );
-                
-                if (linkedEvents.length > 0) {
-                  hasLinkedIssue = true;
-                }
-              } catch (error) {
-                console.log('Could not check timeline events, using body check only');
-              }
-            }
-            
-            if (hasLinkedIssue) {
-              console.log('PR has linked issue(s)');
-
-              await github.rest.issues.createComment({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                issue_number: pr.number,
-                body: `Check-linked-issue: PR ${pr.number} found issue link`
-              });
-
+            if (!pr) {
+              core.setFailed('This workflow must be triggered by a pull_request event.');
               return;
             }
-            
-            const comment = `Check-linked-issue: PR ${pr.number} no issue link found`;
-            
-            await github.rest.issues.createComment({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              issue_number: pr.number,
-              body: comment
+
+            const mode = ('${{ inputs.mode }}' || 'comment').trim().toLowerCase();
+            const owner = context.repo.owner;
+            const repo = context.repo.repo;
+            const prNumber = pr.number;
+
+            async function addComment(body) {
+              await github.rest.issues.createComment({
+                owner,
+                repo,
+                issue_number: prNumber,
+                body,
+              });
+            }
+
+            async function closePr() {
+              await github.rest.pulls.update({
+                owner,
+                repo,
+                pull_number: prNumber,
+                state: 'closed',
+              });
+            }
+
+            async function convertToDraft() {
+              await github.graphql(
+                `
+                  mutation ConvertToDraft($id: ID!) {
+                    convertPullRequestToDraft(input: { pullRequestId: $id }) {
+                      pullRequest {
+                        isDraft
+                      }
+                    }
+                  }
+                `,
+                { id: pr.node_id }
+              );
+            }
+
+            const prData = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: prNumber,
             });
-            
+
+            const body = prData.data.body || '';
+
+            const pattern =
+              /\b(close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\s+#\d+/gi;
+            const matches = body.match(pattern);
+            const hasLinkedIssue = !!(matches && matches.length > 0);
+
+            if (hasLinkedIssue) {
+              return;
+            }
+
+            await addComment(
+              `Check-linked-issue: PR #${prNumber} does not reference any issue.`
+            );
+
             if (mode === 'strict') {
-              try {
-                await github.rest.pulls.update({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  pull_number: pr.number,
-                  state: 'closed'
-                });
-                console.log('PR closed (strict mode)');
-              } catch (error) {
-                console.error('Failed to close PR:', error.message);
-                throw error;
+              await closePr();
+              return;
+            }
+
+            if (mode === 'draft') {
+              if (!pr.draft) {
+                await convertToDraft();
               }
-            } else if (mode === 'draft') {
-              let prData;
-              try {
-                prData = await github.rest.pulls.get({
-                  owner: context.repo.owner,
-                  repo: context.repo.repo,
-                  pull_number: pr.number
-                });
-                console.log(`Current PR draft status: ${prData.data.draft}`);
-              } catch (error) {
-                console.error('Failed to get PR data:', error.message);
-                throw error;
-              }
-              
-              if (!prData.data.draft) {
-                try {
-                  await github.rest.pulls.update({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    pull_number: pr.number,
-                    draft: true
-                  });
-                  console.log('PR converted (draft mode)');
-                  
-                  const updatedPr = await github.rest.pulls.get({
-                    owner: context.repo.owner,
-                    repo: context.repo.repo,
-                    pull_number: pr.number
-                  });
-                  console.log(`PR draft status after update: ${updatedPr.data.draft}`);
-                } catch (error) {
-                  console.error('Failed to convert PR to draft:', error.message);
-                  console.error('Error details:', JSON.stringify(error, null, 2));
-                  throw error;
-                }
-              } else {
-                console.log('PR is already in draft status');
-              }
-            } else {
-              console.log('Comment added (comment mode)');
+              return;
             }
