@@ -1,0 +1,130 @@
+name: Check Linked Issue
+
+on:
+  workflow_call:
+    inputs:
+      mode:
+        description: 'Modes: strict, draft or comment'
+        required: false
+        default: 'comment'
+        type: string
+
+jobs:
+  check-linked-issue:
+    runs-on: ubuntu-latest
+    permissions:
+      pull-requests: write
+      issues: read
+      contents: read
+    
+    steps:
+      - name: Check linked issue
+        id: check_issue
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          script: |
+            const pr = context.payload.pull_request;
+            const mode = '${{ inputs.mode }}'.toLowerCase() || 'comment';
+            
+            const prData = await github.rest.pulls.get({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              pull_number: pr.number
+            });
+            
+            // Check issues in pr.body
+            const body = prData.data.body || '';
+            const issuePattern = /(?:close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\s+#(\d+)/gi;
+            const matches = body.match(issuePattern);
+            
+            let hasLinkedIssue = matches && matches.length > 0;
+            
+            if (!hasLinkedIssue) {
+              try {
+                const timeline = await github.rest.issues.listEventsForTimeline({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  issue_number: pr.number
+                });
+                
+                const linkedEvents = timeline.data.filter(event => 
+                  event.event === 'connected' || event.event === 'cross-referenced'
+                );
+                
+                if (linkedEvents.length > 0) {
+                  hasLinkedIssue = true;
+                }
+              } catch (error) {
+                console.log('Could not check timeline events, using body check only');
+              }
+            }
+            
+            if (hasLinkedIssue) {
+              console.log('PR has linked issue(s)');
+              return;
+            }
+            
+            const comment = `Info: no issue link found`;
+            
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: pr.number,
+              body: comment
+            });
+            
+            if (mode === 'strict') {
+              try {
+                await github.rest.pulls.update({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: pr.number,
+                  state: 'closed'
+                });
+                console.log('PR closed (strict mode)');
+              } catch (error) {
+                console.error('Failed to close PR:', error.message);
+                throw error;
+              }
+            } else if (mode === 'draft') {
+              let prData;
+              try {
+                prData = await github.rest.pulls.get({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: pr.number
+                });
+                console.log(`Current PR draft status: ${prData.data.draft}`);
+              } catch (error) {
+                console.error('Failed to get PR data:', error.message);
+                throw error;
+              }
+              
+              if (!prData.data.draft) {
+                try {
+                  await github.rest.pulls.update({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    pull_number: pr.number,
+                    draft: true
+                  });
+                  console.log('PR converted (draft mode)');
+                  
+                  const updatedPr = await github.rest.pulls.get({
+                    owner: context.repo.owner,
+                    repo: context.repo.repo,
+                    pull_number: pr.number
+                  });
+                  console.log(`PR draft status after update: ${updatedPr.data.draft}`);
+                } catch (error) {
+                  console.error('Failed to convert PR to draft:', error.message);
+                  console.error('Error details:', JSON.stringify(error, null, 2));
+                  throw error;
+                }
+              } else {
+                console.log('PR is already in draft status');
+              }
+            } else {
+              console.log('Comment added (comment mode)');
+            }
