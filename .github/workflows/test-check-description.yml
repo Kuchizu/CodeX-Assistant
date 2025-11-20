@@ -1,6 +1,8 @@
+name: Check Linked Issue Example
+
 on:
   pull_request:
-    types: [opened]
+    types: [opened, edited, synchronize]
 
 permissions:
   pull-requests: write
