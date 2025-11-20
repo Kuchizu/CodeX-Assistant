@@ -60,28 +60,36 @@ jobs:
               console.log(`PR #${prNumber} closed (strict mode).`);
             }
 
+            // To draft
             async function convertPrToDraft() {
               try {
-                await github.request(
-                  'POST /repos/{owner}/{repo}/pulls/{pull_number}/convert-to-draft',
-                  {
-                    owner,
-                    repo,
-                    pull_number: prNumber,
-                    mediaType: {
-                      previews: ['shadow-cat'],
-                    },
-                  }
+                const result = await github.graphql(
+                  `
+                    mutation ConvertToDraft($id: ID!) {
+                      convertPullRequestToDraft(input: { pullRequestId: $id }) {
+                        pullRequest {
+                          number
+                          isDraft
+                        }
+                      }
+                    }
+                  `,
+                  { id: pr.node_id }
                 );
-                console.log(`PR #${prNumber} converted to draft (draft mode).`);
-              } catch (error) {
-                if (error.status === 404) {
-                  console.error(
-                    'convert-to-draft endpoint returned 404. '
+
+                const converted = result?.convertPullRequestToDraft?.pullRequest;
+                if (converted?.isDraft) {
+                  console.log(
+                    `PR #${converted.number} successfully converted to draft`
                   );
                 } else {
-                  console.error('Failed to convert PR to draft:', error);
+                  console.log(
+                    'convertPullRequestToDraft mutation returned without isDraft=true, ' +
+                    'but no error was thrown.'
+                  );
                 }
+              } catch (error) {
+                console.error('Failed to convert PR to draft via GraphQL:', error);
               }
             }
 
