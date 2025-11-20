@@ -1,8 +1,11 @@
-name: Test Check Description
-
 on:
   pull_request:
     types: [opened]
+
+permissions:
+  pull-requests: write
+  issues: read
+  contents: read
 
 jobs:
   check:
