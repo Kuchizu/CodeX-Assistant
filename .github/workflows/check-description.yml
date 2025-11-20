@@ -24,7 +24,6 @@ jobs:
         with:
           github-token: ${{ github.token }}
           script: |
-            // Ensure we have a pull_request in the payload
             const pr = context.payload.pull_request;
             if (!pr) {
               core.setFailed('This workflow must be triggered by a pull_request event.');
@@ -33,13 +32,14 @@ jobs:
 
             const rawMode = '${{ inputs.mode }}' || 'comment';
             const mode = rawMode.trim().toLowerCase();
-            console.log(`Mode: ${mode}`);
-            console.log(`PR number: ${pr.number}`);
-            console.log(`Current draft status: ${pr.draft}`);
 
             const owner = context.repo.owner;
             const repo = context.repo.repo;
             const prNumber = pr.number;
+
+            console.log(`Mode: ${mode}`);
+            console.log(`PR number: ${prNumber}`);
+            console.log(`Current draft status: ${pr.draft}`);
 
             async function addComment(body) {
               await github.rest.issues.createComment({
@@ -68,16 +68,23 @@ jobs:
                     owner,
                     repo,
                     pull_number: prNumber,
+                    mediaType: {
+                      previews: ['shadow-cat'],
+                    },
                   }
                 );
                 console.log(`PR #${prNumber} converted to draft (draft mode).`);
               } catch (error) {
-                console.error('Failed to convert PR to draft:', error);
-                throw error;
+                if (error.status === 404) {
+                  console.error(
+                    'convert-to-draft endpoint returned 404. '
+                  );
+                } else {
+                  console.error('Failed to convert PR to draft:', error);
+                }
               }
             }
 
-            // Check description
             const hasDescription =
               typeof pr.body === 'string' && pr.body.trim().length > 0;
 
@@ -91,7 +98,6 @@ jobs:
 
             console.log('PR description is empty.');
 
-            // Always leave a comment in case of empty description
             await addComment(
               `Check-description: PR #${prNumber} has an empty description. ` +
               `Please add a meaningful description.`
