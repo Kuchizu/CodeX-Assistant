@@ -35,12 +35,19 @@ jobs:
             
             if (hasDescription) {
               console.log('PR description is filled');
+
+              await github.rest.issues.createComment({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                issue_number: pr.number,
+                body: `Check-desk: PR ${pr.number} contains comment`
+              });
               return;
             }
             
-            console.log('PR description is empty, taking action...');
+            console.log('PR description is empty, doing smth...');
             
-            const comment = `Pull request description is empty`;
+            const comment = `Check-desk: PR ${pr.number} description is empty`;
             
             try {
               await github.rest.issues.createComment({
