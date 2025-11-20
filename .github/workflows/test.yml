@@ -1,0 +1,12 @@
+name: Test Check Description
+
+on:
+  pull_request:
+    types: [opened]
+
+jobs:
+  check:
+    uses: ./.github/workflows/check-description.yml
+    with:
+      mode: comment
+    secrets: inherit
