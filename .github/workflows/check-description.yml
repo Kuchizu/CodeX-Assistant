@@ -78,9 +78,15 @@ jobs:
               return;
             }
 
-            await addComment(
-              `Check-description: PR #${prNumber} has an empty description.`
-            );
+            let message = `Check-description: PR #${prNumber} has an empty description.`;
+
+            if (mode === 'strict') {
+              message += '\n\nClosing PR.';
+            } else if (mode === 'draft') {
+              message += '\n\nConverting to draft.';
+            }
+
+            await addComment(message);
 
             if (mode === 'strict') {
               await closePr();

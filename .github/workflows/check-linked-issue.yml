@@ -71,26 +71,56 @@ jobs:
               );
             }
 
-            const prData = await github.rest.pulls.get({
-              owner,
-              repo,
-              pull_number: prNumber,
-            });
+            const result = await github.graphql(
+              `
+                query($owner: String!, $repo: String!, $number: Int!) {
+                  repository(owner: $owner, name: $repo) {
+                    pullRequest(number: $number) {
+                      closingIssuesReferences(first: 10) {
+                        nodes {
+                          number
+                          title
+                          state
+                          url
+                        }
+                      }
+                    }
+                  }
+                }
+              `,
+              {
+                owner,
+                repo,
+                number: prNumber,
+              }
+            );
 
-            const body = prData.data.body || '';
+            const closingIssues = result.repository.pullRequest.closingIssuesReferences.nodes;
 
-            const pattern =
-              /\b(close|closes|closed|fix|fixes|fixed|resolve|resolves|resolved)\s+#\d+/gi;
-            const matches = body.match(pattern);
-            const hasLinkedIssue = !!(matches && matches.length > 0);
+            // Filter for open issues
+            const openIssues = closingIssues.filter(issue => issue.state === 'OPEN');
+            const closedIssues = closingIssues.filter(issue => issue.state === 'CLOSED');
 
-            if (hasLinkedIssue) {
+            if (openIssues.length > 0) {
               return;
             }
 
-            await addComment(
-              `Check-linked-issue: PR #${prNumber} does not reference any issue.`
-            );
+            let message = `Check-linked-issue: PR #${prNumber} does not reference any open issue.`;
+
+            if (closedIssues.length > 0) {
+              const closedList = closedIssues.map(issue => `#${issue.number}`).join(', ');
+              message += ` Closed issue(s): ${closedList}.`;
+            } else if (closingIssues.length === 0) {
+              message += ' No linked issues found.';
+            }
+
+            if (mode === 'strict') {
+              message += '\n\nClosing PR.';
+            } else if (mode === 'draft') {
+              message += '\n\nConverting to draft.';
+            }
+
+            await addComment(message);
 
             if (mode === 'strict') {
               await closePr();
