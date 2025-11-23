@@ -71,6 +71,15 @@ jobs:
               );
             }
 
+            const prData = await github.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: prNumber,
+            });
+
+            const body = prData.data.body || '';
+
+            // Get closing issues
             const result = await github.graphql(
               `
                 query($owner: String!, $repo: String!, $number: Int!) {
@@ -79,9 +88,7 @@ jobs:
                       closingIssuesReferences(first: 10) {
                         nodes {
                           number
-                          title
                           state
-                          url
                         }
                       }
                     }
@@ -97,20 +104,69 @@ jobs:
 
             const closingIssues = result.repository.pullRequest.closingIssuesReferences.nodes;
 
-            // Filter for open issues
-            const openIssues = closingIssues.filter(issue => issue.state === 'OPEN');
-            const closedIssues = closingIssues.filter(issue => issue.state === 'CLOSED');
+            // Extract issue numbers
+            const issuePattern = /#(\d+)/g;
+            const mentionedIssues = [];
+            let match;
+            const seenNumbers = new Set();
 
-            if (openIssues.length > 0) {
+            while ((match = issuePattern.exec(body)) !== null) {
+              const issueNum = parseInt(match[1], 10);
+              if (!seenNumbers.has(issueNum)) {
+                mentionedIssues.push(issueNum);
+                seenNumbers.add(issueNum);
+              }
+            }
+
+            const allIssueNumbers = new Set([
+              ...closingIssues.map(i => i.number),
+              ...mentionedIssues
+            ]);
+
+            const issueStatuses = {};
+            for (const issueNum of allIssueNumbers) {
+              try {
+                const issue = await github.rest.issues.get({
+                  owner,
+                  repo,
+                  issue_number: issueNum,
+                });
+                issueStatuses[issueNum] = issue.data.state;
+              } catch (error) {
+                issueStatuses[issueNum] = 'NOT_FOUND';
+              }
+            }
+
+            const openIssueNums = Object.entries(issueStatuses)
+              .filter(([_, state]) => state === 'open')
+              .map(([num, _]) => parseInt(num, 10));
+
+            const closedIssueNums = Object.entries(issueStatuses)
+              .filter(([_, state]) => state === 'closed')
+              .map(([num, _]) => parseInt(num, 10));
+
+            const notFoundIssueNums = Object.entries(issueStatuses)
+              .filter(([_, state]) => state === 'NOT_FOUND')
+              .map(([num, _]) => parseInt(num, 10));
+
+            // At least one open issue?
+            if (openIssueNums.length > 0) {
               return;
             }
 
             let message = `Check-linked-issue: PR #${prNumber} does not reference any open issue.`;
 
-            if (closedIssues.length > 0) {
-              const closedList = closedIssues.map(issue => `#${issue.number}`).join(', ');
-              message += ` Closed issue(s): ${closedList}.`;
-            } else if (closingIssues.length === 0) {
+            const details = [];
+            if (closedIssueNums.length > 0) {
+              details.push(`Closed issue(s): ${closedIssueNums.join(', ')}`);
+            }
+            if (notFoundIssueNums.length > 0) {
+              details.push(`Not found: ${notFoundIssueNums.join(', ')}`);
+            }
+
+            if (details.length > 0) {
+              message += ` ${details.join('; ')}.`;
+            } else {
               message += ' No linked issues found.';
             }
 
