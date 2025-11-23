@@ -126,12 +126,18 @@ jobs:
             const issueStatuses = {};
             for (const issueNum of allIssueNumbers) {
               try {
-                const issue = await github.rest.issues.get({
+                const response = await github.rest.issues.get({
                   owner,
                   repo,
                   issue_number: issueNum,
                 });
-                issueStatuses[issueNum] = issue.data.state;
+
+                // Check if this is an issue
+                if (response.data.pull_request) {
+                  issueStatuses[issueNum] = 'PULL_REQUEST';
+                } else {
+                  issueStatuses[issueNum] = response.data.state;
+                }
               } catch (error) {
                 issueStatuses[issueNum] = 'NOT_FOUND';
               }
@@ -149,6 +155,10 @@ jobs:
               .filter(([_, state]) => state === 'NOT_FOUND')
               .map(([num, _]) => parseInt(num, 10));
 
+            const prNums = Object.entries(issueStatuses)
+              .filter(([_, state]) => state === 'PULL_REQUEST')
+              .map(([num, _]) => parseInt(num, 10));
+
             // At least one open issue?
             if (openIssueNums.length > 0) {
               return;
@@ -159,6 +169,9 @@ jobs:
             const details = [];
             if (closedIssueNums.length > 0) {
               details.push(`Closed issue(s): ${closedIssueNums.join(', ')}`);
+            }
+            if (prNums.length > 0) {
+              details.push(`Pull request(s): ${prNums.join(', ')} (not issues)`);
             }
             if (notFoundIssueNums.length > 0) {
               details.push(`Not found: ${notFoundIssueNums.join(', ')}`);
