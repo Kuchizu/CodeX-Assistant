@@ -164,29 +164,34 @@ jobs:
               return;
             }
 
-            let message = `Check-linked-issue: PR #${prNumber} does not reference any open issue.`;
+            let message = `### Linked Issue Required\n\n`;
+            message += `This pull request does not reference any open issue.\n\n`;
 
-            const details = [];
-            if (closedIssueNums.length > 0) {
-              details.push(`Closed issue(s): ${closedIssueNums.join(', ')}`);
-            }
-            if (prNums.length > 0) {
-              details.push(`Pull request(s): ${prNums.join(', ')} (not issues)`);
-            }
-            if (notFoundIssueNums.length > 0) {
-              details.push(`Not found: ${notFoundIssueNums.join(', ')}`);
+            if (closedIssueNums.length > 0 || prNums.length > 0 || notFoundIssueNums.length > 0) {
+              message += `**References found:**\n`;
+              if (closedIssueNums.length > 0) {
+                message += `- Closed issues: ${closedIssueNums.map(n => `#${n}`).join(', ')}\n`;
+              }
+              if (prNums.length > 0) {
+                message += `- Pull requests (not issues): ${prNums.map(n => `#${n}`).join(', ')}\n`;
+              }
+              if (notFoundIssueNums.length > 0) {
+                message += `- Not found: ${notFoundIssueNums.map(n => `#${n}`).join(', ')}\n`;
+              }
+              message += `\n`;
             }
 
-            if (details.length > 0) {
-              message += ` ${details.join('; ')}.`;
-            } else {
-              message += ' No linked issues found.';
-            }
+            message += `**Why this matters:**\n`;
+            message += `Linking PRs to issues helps track progress, provides context for reviewers, and automatically closes issues when the PR is merged.\n\n`;
+            message += `**How to link an issue:**\n`;
+            message += `https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue\n\n`;
 
             if (mode === 'strict') {
-              message += '\n\nClosing PR.';
+              message += `**Action taken:** This PR has been closed. Please reopen it after linking to an open issue.`;
             } else if (mode === 'draft') {
-              message += '\n\nConverting to draft.';
+              message += `**Action taken:** This PR has been converted to draft. Please link an open issue and mark it as ready for review when complete.`;
+            } else {
+              message += `Please update this PR to reference an open issue.`;
             }
 
             await addComment(message);

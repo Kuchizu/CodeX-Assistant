@@ -13,5 +13,5 @@ jobs:
   check-description:
     uses: ./.github/workflows/check-description.yml
     with:
-      mode: draft
+      mode: comment
     secrets: inherit

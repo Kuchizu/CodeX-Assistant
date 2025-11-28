@@ -78,12 +78,21 @@ jobs:
               return;
             }
 
-            let message = `Check-description: PR #${prNumber} has an empty description.`;
+            let message = `### PR Description Required\n\n`;
+            message += `This pull request is missing a description.\n\n`;
+            message += `**Why this matters:**\n`;
+            message += `A good description helps reviewers understand your changes, speeds up the review process, and serves as documentation for future reference.\n\n`;
+            message += `**What to include:**\n`;
+            message += `- Summary of the changes\n`;
+            message += `- Motivation and context\n`;
+            message += `- How the changes were tested\n\n`;
 
             if (mode === 'strict') {
-              message += '\n\nClosing PR.';
+              message += `**Action taken:** This PR has been closed. Please reopen it after adding a description.`;
             } else if (mode === 'draft') {
-              message += '\n\nConverting to draft.';
+              message += `**Action taken:** This PR has been converted to draft. Please add a description and mark it as ready for review when complete.`;
+            } else {
+              message += `Please update this PR with a meaningful description.`;
             }
 
             await addComment(message);
