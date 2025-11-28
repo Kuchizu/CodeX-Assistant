@@ -95,17 +95,6 @@ jobs:
               );
             }
 
-            const COMMENT_MARKER = '<!-- check-linked-issue-bot -->';
-
-            async function findBotComment() {
-              const comments = await github.rest.issues.listComments({
-                owner,
-                repo,
-                issue_number: prNumber,
-              });
-              return comments.data.find(c => c.body && c.body.includes(COMMENT_MARKER));
-            }
-
             const prData = await github.rest.pulls.get({
               owner,
               repo,
@@ -139,103 +128,68 @@ jobs:
 
             const closingIssues = result.repository.pullRequest.closingIssuesReferences.nodes;
 
-            // Extract issue numbers
-            const issuePattern = /#(\d+)/g;
-            const mentionedIssues = [];
+            // Check linked issues status
+            const linkedIssueStatuses = {};
+            for (const issue of closingIssues) {
+              linkedIssueStatuses[issue.number] = issue.state;
+            }
+
+            const openLinkedIssues = closingIssues
+              .filter(i => i.state === 'OPEN')
+              .map(i => i.number);
+
+            const closedLinkedIssues = closingIssues
+              .filter(i => i.state === 'CLOSED')
+              .map(i => i.number);
+
+            // Find mentions that are not properly linked
+            const mentionPattern = /#(\d+)/g;
+            const mentionedNumbers = new Set();
             let match;
-            const seenNumbers = new Set();
-
-            while ((match = issuePattern.exec(body)) !== null) {
-              const issueNum = parseInt(match[1], 10);
-              if (!seenNumbers.has(issueNum)) {
-                mentionedIssues.push(issueNum);
-                seenNumbers.add(issueNum);
-              }
+            while ((match = mentionPattern.exec(body)) !== null) {
+              mentionedNumbers.add(parseInt(match[1], 10));
             }
 
-            const allIssueNumbers = new Set([
-              ...closingIssues.map(i => i.number),
-              ...mentionedIssues
-            ]);
+            // Remove properly linked issues from mentions
+            const linkedNumbers = new Set(closingIssues.map(i => i.number));
+            const unlinkedMentions = [...mentionedNumbers].filter(n => !linkedNumbers.has(n));
 
-            const issueStatuses = {};
-            for (const issueNum of allIssueNumbers) {
-              try {
-                const response = await github.rest.issues.get({
-                  owner,
-                  repo,
-                  issue_number: issueNum,
-                });
-
-                // Check if this is an issue
-                if (response.data.pull_request) {
-                  issueStatuses[issueNum] = 'PULL_REQUEST';
-                } else {
-                  issueStatuses[issueNum] = response.data.state;
-                }
-              } catch (error) {
-                issueStatuses[issueNum] = 'NOT_FOUND';
-              }
-            }
-
-            const openIssueNums = Object.entries(issueStatuses)
-              .filter(([_, state]) => state === 'open')
-              .map(([num, _]) => parseInt(num, 10));
-
-            const closedIssueNums = Object.entries(issueStatuses)
-              .filter(([_, state]) => state === 'closed')
-              .map(([num, _]) => parseInt(num, 10));
-
-            const notFoundIssueNums = Object.entries(issueStatuses)
-              .filter(([_, state]) => state === 'NOT_FOUND')
-              .map(([num, _]) => parseInt(num, 10));
-
-            const prNums = Object.entries(issueStatuses)
-              .filter(([_, state]) => state === 'PULL_REQUEST')
-              .map(([num, _]) => parseInt(num, 10));
-
-            // At least one open issue?
-            if (openIssueNums.length > 0) {
+            // At least one open linked issue?
+            if (openLinkedIssues.length > 0) {
               // Check if we need to reopen/unmark draft
-              const botComment = await findBotComment();
-              if (botComment) {
-                if (pr.state === 'closed' && mode === 'strict') {
-                  await reopenPr();
-                  await addComment(`${COMMENT_MARKER}\n### PR Reopened\n\nLinked issue found. This PR has been automatically reopened.`);
-                } else if (pr.draft && mode === 'draft') {
-                  await markReadyForReview();
-                  await addComment(`${COMMENT_MARKER}\n### PR Ready for Review\n\nLinked issue found. This PR has been automatically marked as ready for review.`);
-                }
+              if (pr.state === 'closed' && mode === 'strict') {
+                await reopenPr();
+                await addComment(`### PR Reopened\n\nLinked issue found. This PR has been reopened.`);
+              } else if (pr.draft && mode === 'draft') {
+                await markReadyForReview();
+                await addComment(`### PR Ready for Review\n\nLinked issue found. This PR has been marked as ready for review.`);
               }
               return;
             }
 
-            let message = `${COMMENT_MARKER}\n### Linked Issue Required\n\n`;
-            message += `This pull request does not reference any open issue.\n\n`;
+            let message = `### Linked Issue Required\n\n`;
+            message += `This pull request does not have a properly linked open issue.\n\n`;
 
-            if (closedIssueNums.length > 0 || prNums.length > 0 || notFoundIssueNums.length > 0) {
-              message += `**References found:**\n`;
-              if (closedIssueNums.length > 0) {
-                message += `- Closed issues: ${closedIssueNums.map(n => `#${n}`).join(', ')}\n`;
+            if (closedLinkedIssues.length > 0 || unlinkedMentions.length > 0) {
+              message += `**Found:**\n`;
+              if (closedLinkedIssues.length > 0) {
+                message += `- Linked but closed: ${closedLinkedIssues.map(n => `#${n}`).join(', ')}\n`;
               }
-              if (prNums.length > 0) {
-                message += `- Pull requests (not issues): ${prNums.map(n => `#${n}`).join(', ')}\n`;
-              }
-              if (notFoundIssueNums.length > 0) {
-                message += `- Not found: ${notFoundIssueNums.map(n => `#${n}`).join(', ')}\n`;
+              if (unlinkedMentions.length > 0) {
+                message += `- Mentioned but not linked: ${unlinkedMentions.map(n => `#${n}`).join(', ')}\n`;
               }
               message += `\n`;
             }
 
             message += `**Why this matters:**\n`;
-            message += `Linking PRs to issues helps track progress, provides context for reviewers, and automatically closes issues when the PR is merged.\n\n`;
+            message += `Linking PRs to issues helps track progress, provides context for reviewers, and closes issues when the PR is merged.\n\n`;
             message += `**How to link an issue:**\n`;
             message += `https://docs.github.com/en/issues/tracking-your-work-with-issues/using-issues/linking-a-pull-request-to-an-issue\n\n`;
 
             if (mode === 'strict') {
-              message += `**Action taken:** This PR has been closed. Please reopen it after linking to an open issue.`;
+              message += `**Action taken:** This PR has been closed. Link an open issue and it will be reopened.`;
             } else if (mode === 'draft') {
-              message += `**Action taken:** This PR has been converted to draft. Please link an open issue and mark it as ready for review when complete.`;
+              message += `**Action taken:** This PR has been converted to draft. Link an open issue and it will be marked as ready for review.`;
             } else {
               message += `Please update this PR to reference an open issue.`;
             }
