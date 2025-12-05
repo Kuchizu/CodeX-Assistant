@@ -14,4 +14,3 @@ jobs:
     uses: ./.github/workflows/check-linked-issue.yml
     with:
       mode: comment
-    secrets: inherit
