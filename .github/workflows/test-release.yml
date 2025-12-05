@@ -13,7 +13,7 @@ jobs:
   check-description:
     runs-on: ubuntu-latest
     steps:
-      - uses: codex-team/action-pr-assistant@v1
+      - uses: codex-team/action-pr-assistant@v1.0.0
         with:
           check: description
           mode: comment
